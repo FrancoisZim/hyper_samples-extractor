@@ -18,12 +18,13 @@ usage: extractor_cli.py [-h] [--extractor {bigquery}]
                         [--match_conditions_json MATCH_CONDITIONS_JSON]
                         --tableau_username TABLEAU_USERNAME
                         {load_sample,export_load,append,update,delete}
+
 Utilities to build Hyper Extracts from Cloud Databases
- - load_sample: Load sample rows of data to new Tableau datasource
- - export_load: Bulk export and load to new Tableau datasource
- - append: Append the results of a query to an existing Tableau datasource
- - update: Update an existing Tableau datasource with the changeset from a query
- - delete: Delete rows from a Tableau datasource that match key columns in a changeset from a query
+* load_sample: Load sample rows of data to new Tableau datasource
+* export_load: Bulk export and load to new Tableau datasource
+* append: Append the results of a query to an existing Tableau datasource
+* update: Update an existing Tableau datasource with the changeset from a query
+* delete: Delete rows from a Tableau datasource that match key columns in a changeset from a query
 
 positional arguments:
   {load_sample,export_load,append,update,delete}
