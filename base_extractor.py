@@ -1,11 +1,23 @@
 # -*- coding: utf-8 -*-
-""" Base Extractor
+""" Base Hyper Extractor
+
+Tableau Community supported Hyper API sample
 
 This module provies an Abstract Base Class with some utility methods to extract
 from cloud databases to "live to hyper" Tableau Datasources.
 Database specific Extractor classes extend this to manage queries, exports and
 schema discovery via the database vendor supplied client.
 
+-----------------------------------------------------------------------------
+
+This file is the copyrighted property of Tableau Software and is protected
+by registered patents and other applicable U.S. and international laws and
+regulations.
+
+You may adapt this file and modify it to fit into your context and use it
+as a template to start your own projects.
+
+-----------------------------------------------------------------------------
 """
 
 
@@ -52,13 +64,24 @@ DEFAULT_SITE_ID = ""
 """DEFAULT_SITE_ID (string): Default site ID"""
 
 HYPER_CONNECTION_PARAMETERS = {"lc_time": "en_GB", "date_style": "YMD"}
-"""HYPER_CONNECTION_PARAMETERS (dict): Options are documented in the Tableau Hyper documentation, chapter “Connection Settings”
+"""
+HYPER_CONNECTION_PARAMETERS (dict): Options are documented in the Tableau Hyper API
+documentation, chapter “Connection Settings
 
-- lc_time - Controls the Locale setting that is used for dates. A Locale controls which cultural preferences the application should apply. For example, the literal Januar 1. 2002 can be converted to a date with the German locale de but not with the English locale en_US.
+- lc_time - Controls the Locale setting that is used for dates. A Locale controls
+    which cultural preferences the application should apply. For example, the literal
+    Januar 1. 2002 can be converted to a date with the German locale de but not with the
+    English locale en_US.
+
     Default value: en_US
-    Allowed values start with a two-letter ISO-639 language code and an optional two-letter ISO-3166 country code. If a country code is used, an underscore has to be used to separate it from the language code. Some examples are: en_US (English: United States), en_GB (English: Great Britain), de (German), de_AT (German: Austria).
+    Allowed values start with a two-letter ISO-639 language code and an optional two-letter
+        ISO-3166 country code. If a country code is used, an underscore has to be used to
+        separate it from the language code. Some examples are: en_US (English: United States),
+        en_GB (English: Great Britain), de (German), de_AT (German: Austria).
 
-- date_style - Controls how date strings are interpreted. Y, M and D stand for Year, Month, and Day respectively.
+- date_style - Controls how date strings are interpreted. Y, M and D stand for Year,
+    Month, and Day respectively.
+
     Default value: MDY
     Accepted values: MDY, DMY, YMD, YDM
 """
@@ -91,6 +114,7 @@ class BaseExtractor(ABC):
         tableau_password,
         tableau_hostname,
         tableau_project,
+        staging_bucket,
         tableau_site_id=DEFAULT_SITE_ID,
     ):
         super().__init__()
@@ -105,6 +129,7 @@ class BaseExtractor(ABC):
         self.tableau_server.auth.sign_in(self.tableau_auth)
         self.tableau_project_name = tableau_project
         self.tableau_project_id = self._get_project_id(tableau_project)
+        self.staging_bucket = staging_bucket
 
     def _get_project_id(self, tab_project):
         """
@@ -549,22 +574,22 @@ class BaseExtractor(ABC):
         NOTE: match_columns overrides match_conditions_json if both are specified
         """
 
-    @abstractmethod
-    def upsert_to_datasource(
-        self, sql_query, tab_ds_name, match_columns=None, match_conditions_json=None
-    ):
-        """
-        TODO: NOT IMPLEMENTED YET IN PRERELEASE
-        Upsert/Merge the changeset from sql_query into a datasource on Tableau Server
-
-        sql_query (string): The query string that generates the changeset
-        tab_ds_name (string): Target datasource name
-        match_columns (array of tuples): Array of (source_col, target_col) pairs
-        match_conditions_json (string): Define conditions for matching rows in json format.  See Hyper API guide for details.
-        changeset_table_name (string): The name of the table in the hyper file that contains the changeset (default="updated_rows")
-
-        NOTE: match_columns overrides match_conditions_json if both are specified
-        """
+    # @abstractmethod
+    # def upsert_to_datasource(
+    #     self, sql_query, tab_ds_name, match_columns=None, match_conditions_json=None
+    # ):
+    #     """
+    #     TODO: NOT IMPLEMENTED YET IN PRERELEASE
+    #     Upsert/Merge the changeset from sql_query into a datasource on Tableau Server
+    #
+    #     sql_query (string): The query string that generates the changeset
+    #     tab_ds_name (string): Target datasource name
+    #     match_columns (array of tuples): Array of (source_col, target_col) pairs
+    #     match_conditions_json (string): Define conditions for matching rows in json format.  See Hyper API guide for details.
+    #     changeset_table_name (string): The name of the table in the hyper file that contains the changeset (default="updated_rows")
+    #
+    #     NOTE: match_columns overrides match_conditions_json if both are specified
+    #     """
 
     @abstractmethod
     def delete_from_datasource(

@@ -1,10 +1,24 @@
 """ Tableu RestAPI Helpers
+
+Tableau Community supported Hyper API sample
+
 The helper functions in this module are only used when REST API functionality
-is not yet available in tableauserverclient, e.g. PATCH for update/upsert.
-Once these get added to the standard client libraries then this should be
-refactored out.
-Most of these utility functions are copied from dataupdate_example.py which
+is not yet available in the standard tableauserverclient libraries. (e.g. PATCH
+for update/upsert. Once these get added to the standard client libraries then
+this module will be refactored out.
+NOTE: Most of these utility functions are copied from dataupdate_example.py which
 was included with the prerelease for Data Update REST API Extensions.
+
+-----------------------------------------------------------------------------
+
+This file is the copyrighted property of Tableau Software and is protected
+by registered patents and other applicable U.S. and international laws and
+regulations.
+
+You may adapt this file and modify it to fit into your context and use it
+as a template to start your own projects.
+
+-----------------------------------------------------------------------------
 """
 
 import logging

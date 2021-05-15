@@ -1,7 +1,21 @@
-"""
+""" Hyper Extractor CLI utility
+
+Tableau Community supported Hyper API sample
+
 Command Line Wrapper around Extractor Class Implentations
 The Extractor utilities provide convenience functions to load, append, update and delete
 Tableau datasources from a Cloud Database table or query result
+
+-----------------------------------------------------------------------------
+
+This file is the copyrighted property of Tableau Software and is protected
+by registered patents and other applicable U.S. and international laws and
+regulations.
+
+You may adapt this file and modify it to fit into your context and use it
+as a template to start your own projects.
+
+-----------------------------------------------------------------------------
 """
 import logging
 import argparse
@@ -25,7 +39,7 @@ BUCKET_NAME = "emea_se"
 def exclusive_args(args, *arg_names, required=True, message=None):
     count_args = 0
     for arg_name in arg_names:
-        if bool(args.get(arg_name)):
+        if bool(vars(args).get(arg_name)):
             count_args += 1
     if required:
         if count_args != 1:
@@ -46,7 +60,7 @@ def exclusive_args(args, *arg_names, required=True, message=None):
 
 
 def required_arg(args, arg_name, message=None):
-    if not bool(args.get(arg_name)):
+    if not bool(vars(args).get(arg_name)):
         if message is None:
             raise argparse.ArgumentError(
                 "Missing required argument:{}".format(arg_name)
@@ -70,12 +84,12 @@ logging.basicConfig(
 # Parse Command Line Args
 #
 parser = argparse.ArgumentParser(
-    description="Utilities to build Hyper Extracts from Cloud Databases/n"
-    " load_sample: Load sample rows of data to new Tableau datasource/n"
-    " export_load: Bulk export and load to new Tableau datasource/n"
-    " append: Append the results of a query to an existing Tableau datasource/n"
-    " update: Update an existing Tableau datasource with the changeset from a query/n"
-    " delete: Delete rows from a Tableau datasource they match key columns in a changeset from a query/n",
+    description="""Utilities to build Hyper Extracts from Cloud Databases
+    - load_sample: Load sample rows of data to new Tableau datasource
+    - export_load: Bulk export and load to new Tableau datasource
+    - append: Append the results of a query to an existing Tableau datasource
+    - update: Update an existing Tableau datasource with the changeset from a query
+    - delete: Delete rows from a Tableau datasource that match key columns in a changeset from a query""",
 )
 parser.add_argument(
     "command",
@@ -83,7 +97,7 @@ parser.add_argument(
     help="Select the utility function to call",
 )
 parser.add_argument(
-    "extractor",
+    "--extractor",
     choices=EXTRACTORS.keys(),
     default=DEFAULT_EXTRACTOR,
     help="Select the extractor implementation that matches your cloud database",

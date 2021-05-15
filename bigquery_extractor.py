@@ -1,9 +1,20 @@
-"""Google BigQuery implementation of Base Extractor ABC """
+"""Google BigQuery implementation of Base Hyper Extractor ABC
+
+Tableau Community supported Hyper API sample
+
+-----------------------------------------------------------------------------
+
+This file is the copyrighted property of Tableau Software and is protected
+by registered patents and other applicable U.S. and international laws and
+regulations.
+
+You may adapt this file and modify it to fit into your context and use it
+as a template to start your own projects.
+
+-----------------------------------------------------------------------------
+"""
 import logging
-import argparse
-import getpass
 import subprocess
-import json
 import tableauserverclient as TSC
 from tableauhyperapi import TableDefinition, Nullability, SqlType, TableName
 from base_extractor import BaseExtractor, HyperSQLTypeMappingError, DEFAULT_SITE_ID
@@ -41,9 +52,9 @@ class BigQueryExtractor(BaseExtractor):
             tableau_password,
             tableau_hostname,
             tableau_project,
+            staging_bucket,
             tableau_site_id=tableau_site_id,
         )
-        self.gcp_staging_bucket = staging_bucket
 
     def hyper_sql_type(self, source_column):
         """
@@ -201,7 +212,7 @@ class BigQueryExtractor(BaseExtractor):
 
         extract_prefix = "staging/{}".format(source_table)
         extract_destination_uri = "gs://{}/{}-*.csv.gz".format(
-            self.gcp_staging_bucket, extract_prefix
+            self.staging_bucket, extract_prefix
         )
         extract_job = bq_client.extract_table(
             source_table, extract_destination_uri, job_config=extract_job_config
@@ -210,7 +221,7 @@ class BigQueryExtractor(BaseExtractor):
         logger.info("Exported {} to {}".format(source_table, extract_destination_uri))
 
         storage_client = storage.Client()
-        bucket = storage_client.bucket(self.gcp_staging_bucket)
+        bucket = storage_client.bucket(self.staging_bucket)
         for blob in bucket.list_blobs(prefix=extract_prefix):
             logger.info("Downloading blob:{}".format(blob))
             temp_csv_filename = "temp.csv"
@@ -287,14 +298,17 @@ class BigQueryExtractor(BaseExtractor):
         sql_query (string): The query string that generates the changeset
         tab_ds_name (string): Target datasource name
         match_columns (array of tuples): Array of (source_col, target_col) pairs
-        match_conditions_json (string): Define conditions for matching rows in json format.  See Hyper API guide for details.
-        changeset_table_name (string): The name of the table in the hyper file that contains the changeset (default="deleted_rowids")
+        match_conditions_json (string): Define conditions for matching rows in json format.
+            See Hyper API guide for details.
+        changeset_table_name (string): The name of the table in the hyper file that contains
+            the changeset (default="deleted_rowids")
 
         NOTES:
         - match_columns overrides match_conditions_json if both are specified
         - sql_query must only return columns referenced by the match condition
         - set sql_query to None if conditional delete
-            (e.g. json_request="condition": { "op": "<", "target-col": "col1", "const": {"type": "datetime", "v": "2020-06-00"}})
+            (e.g. json_request="condition": { "op": "<", "target-col": "col1",
+            "const": {"type": "datetime", "v": "2020-06-00"}})
         """
         if sql_query is None:
             self.update_datasource_from_hyper_file(
