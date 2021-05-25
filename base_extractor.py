@@ -6,7 +6,7 @@ Tableau Community supported Hyper API sample
 This module provies an Abstract Base Class with some utility methods to extract
 from cloud databases to "live to hyper" Tableau Datasources.
 Database specific Extractor classes extend this to manage queries, exports and
-schema discovery via the database vendor supplied client.
+schema discovery via the database vendor supplied client libraries.
 
 -----------------------------------------------------------------------------
 
@@ -25,6 +25,8 @@ from abc import ABC, abstractmethod
 import logging
 from pathlib import Path
 import time
+import os
+import uuid
 
 import tableauserverclient as TSC
 import tableau_restapi_helpers as REST
@@ -51,8 +53,11 @@ TELEMETRY = Telemetry.SEND_USAGE_DATA_TO_TABLEAU
     Set to Telemetry.DO_NOT_SEND_USAGE_DATA_TO_TABLEAU to disable
 """
 
+TEMP_DIR = ""
+"""TEMP_DIR (string): Local staging directory for hyper files, database exports etc."""
+
 MAX_ROWS_PER_FILE = 100000
-"""MAX_ROWS_PER_FILE (int): Split output into smaller files for large query results"""
+"""MAX_ROWS_PER_FILE (int): Not yet implemented: Split output into smaller files for large query results"""
 
 SAMPLE_ROWS = 1000
 """SAMPLE_ROWS (int): Default number of rows for LIMIT when using load_sample"""
@@ -105,6 +110,10 @@ class HyperSQLTypeMappingError(Exception):
     pass
 
 
+def tempfile_name(prefix="", suffix=""):
+    return "{}{}{}".format(prefix, uuid.uuid4().hex, suffix)
+
+
 class BaseExtractor(ABC):
     """ Abstract Base Class defining the standard Extractor Interface"""
 
@@ -147,7 +156,7 @@ class BaseExtractor(ABC):
             "No project found for:{}".format(tab_project)
         )
 
-    def get_datasource_id(self, tab_datasource):
+    def _get_datasource_id(self, tab_datasource):
         """
         Return id for tab_datasource
         """
@@ -162,7 +171,7 @@ class BaseExtractor(ABC):
             "No datasource found for:{}".format(tab_datasource)
         )
 
-    def wait_for_async_job(self, async_job_id):
+    def _wait_for_async_job(self, async_job_id):
         """
         Waits for async job to complete and returns finish_code
         """
@@ -171,6 +180,7 @@ class BaseExtractor(ABC):
         finish_code = None
         jobinfo = None
         while completed_at is None:
+            time.sleep(ASYNC_JOB_POLL_INTERVAL)
             jobinfo = self.tableau_server.jobs.get_by_id(async_job_id)
             completed_at = jobinfo.completed_at
             finish_code = jobinfo.finish_code
@@ -179,12 +189,15 @@ class BaseExtractor(ABC):
                     async_job_id, jobinfo.progress, finish_code
                 )
             )
-            time.sleep(ASYNC_JOB_POLL_INTERVAL)
 
-        logger.info("Job {} Completed: {}".format(async_job_id, str(jobinfo)))
+        logger.info(
+            "Job {} Completed: Finish Code: {} Notes: {}".format(
+                async_job_id, finish_code, jobinfo.notes
+            )
+        )
         return finish_code
 
-    def query_result_to_hyper_files(self, query_result_iter, target_table_def):
+    def _query_result_to_hyper_files(self, query_result_iter, target_table_def):
         """
         Writes query output to one or more Hyper files
         Returns a list of output Hyper files
@@ -194,7 +207,7 @@ class BaseExtractor(ABC):
         """
         output_hyper_files = []
         # TODO: Split output into smaller files when query result > MAX_ROWS_PER_FILE
-        path_to_database = Path("temp.hyper")
+        path_to_database = Path(tempfile_name(prefix="temp_", suffix=".hyper"))
         output_hyper_files.append(path_to_database)
 
         with HyperProcess(telemetry=TELEMETRY) as hyper:
@@ -226,7 +239,7 @@ class BaseExtractor(ABC):
         logger.info("The Hyper process has been shut down.")
         return output_hyper_files
 
-    def csv_to_hyper_files(self, path_to_csv, target_table_def):
+    def _csv_to_hyper_files(self, path_to_csv, target_table_def):
         """
         Writes csv to one or more Hyper files
         Returns a list of output Hyper files
@@ -236,7 +249,7 @@ class BaseExtractor(ABC):
         """
         output_hyper_files = []
         # TODO: Split output into smaller files when csv contains > MAX_ROWS_PER_FILE
-        path_to_database = Path("temp.hyper")
+        path_to_database = Path(tempfile_name(prefix="temp_", suffix=".hyper"))
         output_hyper_files.append(path_to_database)
 
         with HyperProcess(telemetry=TELEMETRY) as hyper:
@@ -263,7 +276,7 @@ class BaseExtractor(ABC):
         logger.debug("The Hyper process has been shut down.")
         return output_hyper_files
 
-    def publish_hyper_file(
+    def _publish_hyper_file(
         self,
         path_to_database,
         tab_ds_name,
@@ -291,7 +304,7 @@ class BaseExtractor(ABC):
         logger.info("Datasource published. Datasource ID: {0}".format(datasource.id))
         return datasource.id
 
-    def update_datasource_from_hyper_file(
+    def _update_datasource_from_hyper_file(
         self,
         path_to_database,
         tab_ds_name,
@@ -456,7 +469,7 @@ class BaseExtractor(ABC):
                 }
         else:
             raise Exception(
-                "Unknown action {} specified for update_datasource_from_hyper_file".format(
+                "Unknown action {} specified for _update_datasource_from_hyper_file".format(
                     action
                 )
             )
@@ -469,7 +482,7 @@ class BaseExtractor(ABC):
                 self.tableau_server.auth_token,
                 self.tableau_server.site_id,
             )
-        ds_id = self.get_datasource_id(tab_ds_name)
+        ds_id = self._get_datasource_id(tab_ds_name)
         async_job_id = REST.patch_datasource(
             server=self.tableau_hostname,
             auth_token=self.tableau_server.auth_token,
@@ -478,7 +491,7 @@ class BaseExtractor(ABC):
             file_upload_id=file_upload_id,
             request_json=json_request,
         )
-        finish_code = self.wait_for_async_job(async_job_id)
+        finish_code = self._wait_for_async_job(async_job_id)
         if finish_code != "0":
             raise TableauJobError(
                 "Patch job {} terminated with non-zero return code:{}".format(
@@ -487,7 +500,7 @@ class BaseExtractor(ABC):
             )
 
     @abstractmethod
-    def hyper_sql_type(self, source_column):
+    def _hyper_sql_type(self, source_column):
         """
         Finds the correct Hyper column type for source_column
 
@@ -497,7 +510,7 @@ class BaseExtractor(ABC):
         """
 
     @abstractmethod
-    def hyper_table_definition(self, source_table, hyper_table_name="Extract"):
+    def _hyper_table_definition(self, source_table, hyper_table_name="Extract"):
         """
         Build a hyper table definition from source_schema
 
@@ -508,7 +521,7 @@ class BaseExtractor(ABC):
         """
 
     @abstractmethod
-    def query_to_hyper_files(self, sql_query, hyper_table_name="Extract"):
+    def _query_to_hyper_files(self, sql_query, hyper_table_name="Extract"):
         """
         Executes sql_query against the source database and writes the output to one or more Hyper files
         Returns a list of output Hyper files
@@ -548,30 +561,47 @@ class BaseExtractor(ABC):
 
     @abstractmethod
     def append_to_datasource(
-        self, sql_query, tab_ds_name, publish_mode=TSC.Server.PublishMode.Append
+        self,
+        tab_ds_name,
+        sql_query=None,
+        source_table=None,
+        publish_mode=TSC.Server.PublishMode.Append,
     ):
         """
         Appends the result of sql_query to a datasource on Tableau Server
 
-        source_table (string): Source table identifier
         tab_ds_name (string): Target datasource name
+        sql_query (string): The query string that generates the changeset
+        source_table (string): Identifier for source table containing the changeset
         publish_mode: One of TSC.Server.[Overwrite|Append|CreateNew] (default=Append)
+
+        NOTES:
+        - Specify either sql_query OR source_table, error if both specified
         """
 
     @abstractmethod
     def update_datasource(
-        self, sql_query, tab_ds_name, match_columns=None, match_conditions_json=None
+        self,
+        tab_ds_name,
+        sql_query=None,
+        source_table=None,
+        match_columns=None,
+        match_conditions_json=None,
+        changeset_table_name="updated_rows",
     ):
         """
         Updates a datasource on Tableau Server with the changeset from sql_query
 
-        sql_query (string): The query string that generates the changeset
         tab_ds_name (string): Target datasource name
+        sql_query (string): The query string that generates the changeset
+        source_table (string): Identifier for source table containing the changeset
         match_columns (array of tuples): Array of (source_col, target_col) pairs
         match_conditions_json (string): Define conditions for matching rows in json format.  See Hyper API guide for details.
         changeset_table_name (string): The name of the table in the hyper file that contains the changeset (default="updated_rows")
 
-        NOTE: match_columns overrides match_conditions_json if both are specified
+        NOTES:
+        - Specify either match_columns OR match_conditions_json, error if both specified
+        - Specify either sql_query OR source_table, error if both specified
         """
 
     # @abstractmethod
@@ -594,8 +624,9 @@ class BaseExtractor(ABC):
     @abstractmethod
     def delete_from_datasource(
         self,
-        sql_query,
         tab_ds_name,
+        sql_query=None,
+        source_table=None,
         match_columns=None,
         match_conditions_json=None,
         changeset_table_name="deleted_rowids",
@@ -604,17 +635,20 @@ class BaseExtractor(ABC):
         Delete rows matching the changeset from sql_query from a datasource on Tableau Server
         Simple delete by condition when sql_query is None
 
-        sql_query (string): The query string that generates the changeset
         tab_ds_name (string): Target datasource name
+        sql_query (string): The query string that generates the changeset
+        source_table (string): Identifier for source table containing the changeset
         match_columns (array of tuples): Array of (source_col, target_col) pairs
         match_conditions_json (string): Define conditions for matching rows in json format.  See Hyper API guide for details.
         changeset_table_name (string): The name of the table in the hyper file that contains the changeset (default="deleted_rowids")
 
         NOTES:
         - match_columns overrides match_conditions_json if both are specified
-        - sql_query must only return columns referenced by the match condition
-        - set sql_query to None if conditional delete
+        - sql_query or source_table must only return columns referenced by the match condition
+        - Specify either sql_query OR source_table, error if both specified
+        - Set sql_query and source_table to None if conditional delete
             (e.g. json_request="condition": { "op": "<", "target-col": "col1", "const": {"type": "datetime", "v": "2020-06-00"}})
+        - Specify either match_columns OR match_conditions_json, error if both specified
         """
 
 

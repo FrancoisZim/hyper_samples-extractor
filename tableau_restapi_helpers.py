@@ -1,4 +1,4 @@
-""" Tableu RestAPI Helpers
+""" Tableau RestAPI Helpers
 
 Tableau Community supported Hyper API sample
 

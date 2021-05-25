@@ -12,7 +12,7 @@ following methods:
 * export_load - Bulk export the contents of source_table and load to a Tableau Server
 * append_to_datasource - Appends the result of sql_query to a datasource on Tableau Server
 * update_datasource - Updates a datasource on Tableau Server with the changeset from sql_query
-* delete_from_datasource - Delete rows matching the changeset from sql_query from a datasource on Tableau Server. Simple delete by condition when sql_query is None
+* delete_from_datasource - Delete rows matching the changeset from a datasource on Tableau Server.  Simple delete by condition when sql_query is None
 
 For a full list of methods and args see the docstrings in the BaseExtractor class.
 

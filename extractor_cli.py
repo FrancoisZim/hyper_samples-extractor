@@ -28,7 +28,6 @@ EXTRACTORS = {"bigquery": bigquery_extractor.BigQueryExtractor}
 DEFAULT_EXTRACTOR = "bigquery"
 MAX_QUERY_SIZE = 100 * 1024 * 1024  # 100MB
 SAMPLE_ROWS = 1000
-SOURCE_TABLE_ID = "pre-sales-demo.EU_Superstore.Orders"
 TABLEAU_PROJECT = "HyperAPITests"
 TABLEAU_DATASOURCE_NAME = "Orders"
 TABLEAU_HOSTNAME = "http://localhost"
@@ -103,9 +102,7 @@ parser.add_argument(
     help="Select the extractor implementation that matches your cloud database",
 )
 parser.add_argument(
-    "--source_table_id",
-    default=SOURCE_TABLE_ID,
-    help="Source table id (default={})".format(SOURCE_TABLE_ID),
+    "--source_table_id", help="Source table ID",
 )
 parser.add_argument(
     "--tableau_project",
@@ -216,8 +213,9 @@ if selected_command in ("append", "update", "delete"):
         args,
         "sql",
         "sqlfile",
+        "source_table_id",
         required=(selected_command != "delete"),
-        message="Specify either sql OR sqlfile",
+        message="Specify either sql OR sqlfile OR source_table_id",
     )
     sql_string = args.sql
     if args.sqlfile:
@@ -226,7 +224,9 @@ if selected_command in ("append", "update", "delete"):
 
     if selected_command == "append":
         extractor.append_to_datasource(
-            sql_query=sql_string, tab_ds_name=args.tableau_datasource,
+            sql_query=sql_string,
+            source_table=args.source_table_id,
+            tab_ds_name=args.tableau_datasource,
         )
     else:
         #
@@ -245,6 +245,7 @@ if selected_command in ("append", "update", "delete"):
         if selected_command == "update":
             extractor.update_datasource(
                 sql_query=sql_string,
+                source_table=args.source_table_id,
                 tab_ds_name=args.tableau_datasource,
                 match_columns=args.match_columns,
                 match_conditions_json=match_conditions_json,
@@ -252,6 +253,7 @@ if selected_command in ("append", "update", "delete"):
         if selected_command == "delete":
             extractor.delete_from_datasource(
                 sql_query=sql_string,
+                source_table=args.source_table_id,
                 tab_ds_name=args.tableau_datasource,
                 match_columns=args.match_columns,
                 match_conditions_json=match_conditions_json,
