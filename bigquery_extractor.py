@@ -44,24 +44,44 @@ class QuerySizeLimitError(Exception):
 
 
 class BigQueryExtractor(BaseExtractor):
-    """ Google BigQuery Implementation of Extractor Interface"""
+    """ Google BigQuery Implementation of Extractor Interface
+
+    Authentication to Tableau Server can be either by Personal Access Token or
+     Username and Password.
+
+    Constructor Args:
+    - tableau_hostname (string): URL for Tableau Server, e.g. "http://localhost"
+    - tableau_site_id (string): Tableau site identifier - if default use ""
+    - tableau_project (string): Tableau project identifier
+    - staging_bucket (string): Cloud storage bucket used for db extracts
+    - tableau_token_name (string): PAT name
+    - tableau_token_secret (string): PAT secret
+    - tableau_username (string): Tableau username
+    - tableau_password (string): Tableau password
+    NOTE: Authentication to Tableau Server can be either by Personal Access Token or
+     Username and Password.  If both are specified then token takes precedence.
+    """
 
     def __init__(
         self,
-        tableau_username,
-        tableau_password,
         tableau_hostname,
         tableau_project,
-        staging_bucket,
         tableau_site_id=DEFAULT_SITE_ID,
+        staging_bucket=None,
+        tableau_token_name=None,
+        tableau_token_secret=None,
+        tableau_username=None,
+        tableau_password=None,
     ):
         super().__init__(
-            tableau_username,
-            tableau_password,
-            tableau_hostname,
-            tableau_project,
-            staging_bucket,
+            tableau_hostname=tableau_hostname,
+            tableau_project=tableau_project,
             tableau_site_id=tableau_site_id,
+            staging_bucket=staging_bucket,
+            tableau_token_name=tableau_token_name,
+            tableau_token_secret=tableau_token_secret,
+            tableau_username=tableau_username,
+            tableau_password=tableau_password,
         )
 
     def _hyper_sql_type(self, source_column):
@@ -188,7 +208,7 @@ class BigQueryExtractor(BaseExtractor):
 
         source_table (string): Source table ref ("project ID.dataset ID.table ID")
         tab_ds_name (string): Target datasource name
-        publish_mode: One of TSC.Server.[Overwrite|Append|CreateNew] (default=CreateNew)
+        publish_mode: One of TSC.Server.[Overwrite|CreateNew] (default=CreateNew)
         sample_rows (int): How many rows to include in the sample (default=SAMPLE_ROWS)
         """
 
@@ -196,10 +216,19 @@ class BigQueryExtractor(BaseExtractor):
         # set publish_mode=TSC.Server.PublishMode.Overwrite to refresh a sample
         sql_query = "SELECT * FROM `{}` LIMIT {}".format(source_table, sample_rows)
         output_hyper_files = self._query_to_hyper_files(sql_query, tab_ds_name)
+        first_chunk = True
         for path_to_database in output_hyper_files:
+            if first_chunk:
+                self._publish_hyper_file(path_to_database, tab_ds_name, publish_mode)
+                first_chunk = False
+            else:
+                self._update_datasource_from_hyper_file(
+                    path_to_database=path_to_database,
+                    tab_ds_name=tab_ds_name,
+                    action="INSERT",
+                )
             self._publish_hyper_file(path_to_database, tab_ds_name, publish_mode)
             os.remove(path_to_database)
-            publish_mode = TSC.Server.PublishMode.Append  # Append subsequent chunks
 
     def _extract_to_blobs(self, source_table):
         # Returns list of blobs
@@ -236,11 +265,12 @@ class BigQueryExtractor(BaseExtractor):
 
         source_table (string): Source table ref ("project ID.dataset ID.table ID")
         tab_ds_name (string): Target datasource name
-        publish_mode: One of TSC.Server.[Overwrite|Append|CreateNew] (default=CreateNew)
+        publish_mode: One of TSC.Server.[Overwrite|CreateNew] (default=CreateNew)
         """
         # Uses the bigquery export api to split large table to csv for load
         source_table_ref = bq_client.get_table(source_table)
         target_table_def = self._hyper_table_definition(source_table_ref)
+        first_chunk = True
         for blob in self._extract_to_blobs(source_table):
             temp_csv_filename = tempfile_name(prefix="temp", suffix=".csv")
             self._download_blob(blob, temp_csv_filename)
@@ -248,9 +278,18 @@ class BigQueryExtractor(BaseExtractor):
                 temp_csv_filename, target_table_def
             )
             for path_to_database in output_hyper_files:
-                self._publish_hyper_file(path_to_database, tab_ds_name, publish_mode)
+                if first_chunk:
+                    self._publish_hyper_file(
+                        path_to_database, tab_ds_name, publish_mode
+                    )
+                    first_chunk = False
+                else:
+                    self._update_datasource_from_hyper_file(
+                        path_to_database=path_to_database,
+                        tab_ds_name=tab_ds_name,
+                        action="INSERT",
+                    )
                 os.remove(path_to_database)
-                publish_mode = TSC.Server.PublishMode.Append  # Append subsequent chunks
             os.remove(Path(temp_csv_filename))
 
     def append_to_datasource(
@@ -258,7 +297,7 @@ class BigQueryExtractor(BaseExtractor):
         tab_ds_name,
         sql_query=None,
         source_table=None,
-        publish_mode=TSC.Server.PublishMode.Append,
+        changeset_table_name="new_rows",
     ):
         """
         Appends the result of sql_query to a datasource on Tableau Server
@@ -266,11 +305,13 @@ class BigQueryExtractor(BaseExtractor):
         tab_ds_name (string): Target datasource name
         sql_query (string): The query string that generates the changeset
         source_table (string): Identifier for source table containing the changeset
-        publish_mode: One of TSC.Server.[Overwrite|Append|CreateNew] (default=Append)
+        changeset_table_name (string): The name of the table in the hyper file that
+            contains the changeset (default="new_rows")
 
         NOTES:
         - Specify either sql_query OR source_table, error if both specified
         """
+
         if not (bool(sql_query) ^ bool(source_table)):
             raise Exception("Must specify either sql_query OR source_table")
         if sql_query:
@@ -278,9 +319,12 @@ class BigQueryExtractor(BaseExtractor):
             output_hyper_files = self._query_to_hyper_files(sql_query, tab_ds_name)
 
             for path_to_database in output_hyper_files:
-                self._publish_hyper_file(path_to_database, tab_ds_name, publish_mode)
+                self._update_datasource_from_hyper_file(
+                    path_to_database=path_to_database,
+                    tab_ds_name=tab_ds_name,
+                    action="INSERT",
+                )
                 os.remove(path_to_database)
-                publish_mode = TSC.Server.PublishMode.Append  # Append subsequent chunks
         if source_table:
             # Bulk extract and append from a changeset that is stored in a bq table
             source_table_ref = bq_client.get_table(source_table)
@@ -292,13 +336,12 @@ class BigQueryExtractor(BaseExtractor):
                     temp_csv_filename, target_table_def
                 )
                 for path_to_database in output_hyper_files:
-                    self._publish_hyper_file(
-                        path_to_database, tab_ds_name, publish_mode
+                    self._update_datasource_from_hyper_file(
+                        path_to_database=path_to_database,
+                        tab_ds_name=tab_ds_name,
+                        action="INSERT",
                     )
                     os.remove(path_to_database)
-                    publish_mode = (
-                        TSC.Server.PublishMode.Append
-                    )  # Append subsequent chunks
                 os.remove(Path(temp_csv_filename))
 
     def update_datasource(
@@ -317,8 +360,10 @@ class BigQueryExtractor(BaseExtractor):
         sql_query (string): The query string that generates the changeset
         source_table (string): Identifier for source table containing the changeset
         match_columns (array of tuples): Array of (source_col, target_col) pairs
-        match_conditions_json (string): Define conditions for matching rows in json format.  See Hyper API guide for details.
-        changeset_table_name (string): The name of the table in the hyper file that contains the changeset (default="updated_rows")
+        match_conditions_json (string): Define conditions for matching rows in json format.
+            See Hyper API guide for details.
+        changeset_table_name (string): The name of the table in the hyper file that contains
+            the changeset (default="updated_rows")
 
         NOTES:
         - Specify either match_columns OR match_conditions_json, error if both specified
@@ -385,8 +430,10 @@ class BigQueryExtractor(BaseExtractor):
         sql_query (string): The query string that generates the changeset
         source_table (string): Identifier for source table containing the changeset
         match_columns (array of tuples): Array of (source_col, target_col) pairs
-        match_conditions_json (string): Define conditions for matching rows in json format.  See Hyper API guide for details.
-        changeset_table_name (string): The name of the table in the hyper file that contains the changeset (default="deleted_rowids")
+        match_conditions_json (string): Define conditions for matching rows in json format.
+            See Hyper API guide for details.
+        changeset_table_name (string): The name of the table in the hyper file that contains
+            the changeset (default="deleted_rowids")
 
         NOTES:
         - match_columns overrides match_conditions_json if both are specified

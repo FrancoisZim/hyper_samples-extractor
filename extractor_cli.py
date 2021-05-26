@@ -111,9 +111,7 @@ parser.add_argument(
     help="Target project name (default={})".format(TABLEAU_PROJECT),
 )
 parser.add_argument(
-    "--tableau_datasource",
-    default=TABLEAU_DATASOURCE_NAME,
-    help="Target datasource name (default={})".format(TABLEAU_DATASOURCE_NAME),
+    "--tableau_datasource", required=True, help="Target datasource name",
 )
 parser.add_argument(
     "--tableau_hostname",
@@ -162,8 +160,15 @@ parser.add_argument(
 )
 # TODO: Add option to authenticate with api token
 parser.add_argument(
-    "--tableau_username", "-U", required=True, help="Tableau user name",
+    "--tableau_username", "-U", help="Tableau user name",
 )
+parser.add_argument(
+    "--tableau_token_name", help="Personal access token name",
+)
+parser.add_argument(
+    "--tableau_token_secretfile", help="File containing personal access token secret",
+)
+
 args = parser.parse_args()
 selected_command = args.command
 
@@ -171,19 +176,46 @@ selected_command = args.command
 # Initialize Extractor Implementation
 #
 TABLEAU_HOSTNAME = args.tableau_hostname
-TABLEAU_USERNAME = args.tableau_username
-TABLEAU_PASSWORD = getpass.getpass("Password: ")
 TABLEAU_PROJECT = args.tableau_project
 TABLEAU_SITE_ID = args.tableau_site_id
 extractor_class = EXTRACTORS.get(args.extractor)
-extractor = extractor_class(
-    tableau_username=TABLEAU_USERNAME,
-    tableau_password=TABLEAU_PASSWORD,
-    tableau_hostname=TABLEAU_HOSTNAME,
-    tableau_project=TABLEAU_PROJECT,
-    staging_bucket=BUCKET_NAME,
-    tableau_site_id=TABLEAU_SITE_ID,
+extractor = {}
+exclusive_args(
+    args,
+    "tableau_token_name",
+    "tableau_username",
+    required=True,
+    message="Specify either tableau_token_name OR tableau_username",
 )
+if args.tableau_token_name:
+    required_arg(
+        args,
+        "tableau_token_secretfile",
+        "Must specify tableau_token_secretfile with tableau_token_name",
+    )
+    tableau_token_secret = ""
+    with open(args.tableau_token_secretfile, "r") as myfile:
+        tableau_token_secret = myfile.read().strip()
+
+    extractor = extractor_class(
+        tableau_hostname=TABLEAU_HOSTNAME,
+        tableau_project=TABLEAU_PROJECT,
+        tableau_site_id=TABLEAU_SITE_ID,
+        staging_bucket=BUCKET_NAME,
+        tableau_token_name=args.tableau_token_name,
+        tableau_token_secret=tableau_token_secret,
+    )
+else:
+    TABLEAU_USERNAME = args.tableau_username
+    TABLEAU_PASSWORD = getpass.getpass("Password: ")
+    extractor = extractor_class(
+        tableau_hostname=TABLEAU_HOSTNAME,
+        tableau_project=TABLEAU_PROJECT,
+        tableau_site_id=TABLEAU_SITE_ID,
+        staging_bucket=BUCKET_NAME,
+        tableau_username=TABLEAU_USERNAME,
+        tableau_password=TABLEAU_PASSWORD,
+    )
 
 #
 # Implement TABLE level commands here
@@ -220,7 +252,7 @@ if selected_command in ("append", "update", "delete"):
     sql_string = args.sql
     if args.sqlfile:
         with open(args.sqlfile, "r") as myfile:
-            sql_string = myfile.readlines()
+            sql_string = myfile.read()
 
     if selected_command == "append":
         extractor.append_to_datasource(

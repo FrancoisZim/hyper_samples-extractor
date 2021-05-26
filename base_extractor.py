@@ -25,24 +25,17 @@ from abc import ABC, abstractmethod
 import logging
 from pathlib import Path
 import time
-import os
 import uuid
+from filelock import FileLock
 
 import tableauserverclient as TSC
 import tableau_restapi_helpers as REST
 from tableauhyperapi import (
     HyperProcess,
     Connection,
-    TableDefinition,
-    TableName,
-    SqlType,
     Telemetry,
     Inserter,
     CreateMode,
-    HyperException,
-    NOT_NULLABLE,
-    NULLABLE,
-    escape_name,
     escape_string_literal,
 )
 
@@ -53,7 +46,7 @@ TELEMETRY = Telemetry.SEND_USAGE_DATA_TO_TABLEAU
     Set to Telemetry.DO_NOT_SEND_USAGE_DATA_TO_TABLEAU to disable
 """
 
-TEMP_DIR = ""
+TEMP_DIR = "/tmp"
 """TEMP_DIR (string): Local staging directory for hyper files, database exports etc."""
 
 MAX_ROWS_PER_FILE = 100000
@@ -62,8 +55,16 @@ MAX_ROWS_PER_FILE = 100000
 SAMPLE_ROWS = 1000
 """SAMPLE_ROWS (int): Default number of rows for LIMIT when using load_sample"""
 
-ASYNC_JOB_POLL_INTERVAL = 10
+ASYNC_JOB_POLL_INTERVAL = 5
 """ASYNC_JOB_POLL_INTERVAL (int): How many seconds to wait between polls for Asynchronous Job completion"""
+
+DATASOURCE_LOCK_TIMEOUT = 60
+"""DATASOURCE_LOCK_TIMEOUT (int): This  prevent multiple requests from being run against the
+  same Tableau datasource at the same time.  This only guards against symeltaneous jobs on the same
+  host so you will need to implement this check in your scheduler if running on multiple hosts"""
+
+DATASOURCE_LOCKFILE_PREFIX = "/var/lock/tableau_extractor"
+"""DATASOURCE_LOCK_TIMEOUT (string): Defines the location of lockfiles"""
 
 DEFAULT_SITE_ID = ""
 """DEFAULT_SITE_ID (string): Default site ID"""
@@ -111,34 +112,77 @@ class HyperSQLTypeMappingError(Exception):
 
 
 def tempfile_name(prefix="", suffix=""):
-    return "{}{}{}".format(prefix, uuid.uuid4().hex, suffix)
+    return "{}/tableau_extractor_{}{}{}".format(
+        TEMP_DIR, prefix, uuid.uuid4().hex, suffix
+    )
 
 
 class BaseExtractor(ABC):
-    """ Abstract Base Class defining the standard Extractor Interface"""
+    """
+    Abstract Base Class defining the standard Extractor Interface
+
+    Authentication to Tableau Server can be either by Personal Access Token or
+     Username and Password.
+
+    Constructor Args:
+    - tableau_hostname (string): URL for Tableau Server, e.g. "http://localhost"
+    - tableau_site_id (string): Tableau site identifier - if default use ""
+    - tableau_project (string): Tableau project identifier
+    - staging_bucket (string): Cloud storage bucket used for db extracts
+    - tableau_token_name (string): PAT name
+    - tableau_token_secret (string): PAT secret
+    - tableau_username (string): Tableau username
+    - tableau_password (string): Tableau password
+    NOTE: Authentication to Tableau Server can be either by Personal Access Token or
+     Username and Password.  If both are specified then token takes precedence.
+    """
 
     def __init__(
         self,
-        tableau_username,
-        tableau_password,
         tableau_hostname,
         tableau_project,
-        staging_bucket,
         tableau_site_id=DEFAULT_SITE_ID,
+        staging_bucket=None,
+        tableau_token_name=None,
+        tableau_token_secret=None,
+        tableau_username=None,
+        tableau_password=None,
     ):
         super().__init__()
         self.tableau_site_id = tableau_site_id
         self.tableau_hostname = tableau_hostname
-        self.tableau_auth = TSC.TableauAuth(
-            username=tableau_username,
-            password=tableau_password,
-            site_id=tableau_site_id,
-        )
+        if tableau_token_name:
+            self.tableau_auth = TSC.PersonalAccessTokenAuth(
+                token_name=tableau_token_name,
+                personal_access_token=tableau_token_secret,
+                site_id="",
+            )
+        else:
+            self.tableau_auth = TSC.TableauAuth(
+                username=tableau_username,
+                password=tableau_password,
+                site_id=tableau_site_id,
+            )
         self.tableau_server = TSC.Server(tableau_hostname, use_server_version=True)
         self.tableau_server.auth.sign_in(self.tableau_auth)
         self.tableau_project_name = tableau_project
         self.tableau_project_id = self._get_project_id(tableau_project)
         self.staging_bucket = staging_bucket
+
+    def _datasource_lock(self, tab_ds_name):
+        """
+        Returns a posix lock for the named datasource.
+        NOTE: Exclusive lock is not actually acquired until you call "with lock:" or "lock.acquire():
+        e.g.
+            lock=self._datasource_lock(tab_ds_name)
+            with lock:
+                #exclusive lock active for datasource here
+            #exclusive lock released for datasource here
+        """
+        lock_path = "{}.{}.{}.lock".format(
+            DATASOURCE_LOCKFILE_PREFIX, self.tableau_project_id, tab_ds_name
+        )
+        return FileLock(lock_path, timeout=DATASOURCE_LOCK_TIMEOUT)
 
     def _get_project_id(self, tab_project):
         """
@@ -287,7 +331,7 @@ class BaseExtractor(ABC):
 
         path_to_database (string): Hyper file to publish
         tab_ds_name (string): Target datasource name
-        publish_mode: One of TSC.Server.[Overwrite|Append|CreateNew] (default=CreateNew)
+        publish_mode: One of TSC.Server.[Overwrite|CreateNew] (default=CreateNew)
 
         Returns the Datasource ID
         """
@@ -298,9 +342,11 @@ class BaseExtractor(ABC):
 
         logger.info(f"Publishing {path_to_database} to {tab_ds_name}...")
         # Publish datasource
-        datasource = self.tableau_server.datasources.publish(
-            datasource, path_to_database, publish_mode
-        )
+        lock = self._datasource_lock(tab_ds_name)
+        with lock:
+            datasource = self.tableau_server.datasources.publish(
+                datasource, path_to_database, publish_mode
+            )
         logger.info("Datasource published. Datasource ID: {0}".format(datasource.id))
         return datasource.id
 
@@ -321,7 +367,7 @@ class BaseExtractor(ABC):
         match_columns (array of tuples): Array of (source_col, target_col) pairs
         match_conditions_json (string): Define conditions for matching rows in json format.  See Hyper API guide for details.
         changeset_table_name (string): The name of the table in the hyper file that contains the changest (default="updated_rows")
-        action (string): One of "UPDATE" or "DELETE" (Default="UPDATE")
+        action (string): One of "INSERT", "UPDATE" or "DELETE" (Default="UPDATE")
 
         NOTES:
         - match_columns overrides match_conditions_json if both are specified
@@ -329,7 +375,7 @@ class BaseExtractor(ABC):
             (e.g. json_request="condition": { "op": "<", "target-col": "col1", "const": {"type": "datetime", "v": "2020-06-00"}})
         - When action is DELETE, it is an error if the source table contains any additional columns not referenced by the condition. Those columns are pointless and we want to let the user know, so they can fix their scripts accordingly.
         """
-
+        action = action.upper()
         match_conditions_args = []
         if match_columns is not None:
             for match_pair in match_columns:
@@ -467,6 +513,30 @@ class BaseExtractor(ABC):
                         },
                     ]
                 }
+        elif action == "INSERT":
+            # The "insert" operation appends one or more rows from a table inside the uploaded Hyper file into the updated Hyper file on the server.
+            #
+            # Example
+            #
+            # {"action": "insert", "source-table": "added_users", "target-table": "current_users"}
+            # Parameters:
+            #
+            # `target-table` (string; required): the table name inside the target database from which we will insert data
+            # `target-schema` (string; required): analogous to target-schema, but for the source table
+            # `source-table` (string; required): the table name inside the source database into which the data will be inserted
+            # `source-schema` (string; required): the schema name inside the source database; default: the one, unique schema name inside the target database in case the target db has only one schema; error otherwise
+            json_request = {
+                "actions": [
+                    # INSERT action
+                    {
+                        "action": "insert",
+                        "source-schema": "Extract",
+                        "source-table": changeset_table_name,
+                        "target-schema": "Extract",
+                        "target-table": "Extract",
+                    },
+                ]
+            }
         else:
             raise Exception(
                 "Unknown action {} specified for _update_datasource_from_hyper_file".format(
@@ -474,7 +544,7 @@ class BaseExtractor(ABC):
                 )
             )
         file_upload_id = None
-        if not path_to_database is None:
+        if path_to_database is not None:
             # Update or delete by row_id
             file_upload_id = REST.upload_file(
                 path_to_database,
@@ -483,21 +553,23 @@ class BaseExtractor(ABC):
                 self.tableau_server.site_id,
             )
         ds_id = self._get_datasource_id(tab_ds_name)
-        async_job_id = REST.patch_datasource(
-            server=self.tableau_hostname,
-            auth_token=self.tableau_server.auth_token,
-            site_id=self.tableau_server.site_id,
-            datasource_id=ds_id,
-            file_upload_id=file_upload_id,
-            request_json=json_request,
-        )
-        finish_code = self._wait_for_async_job(async_job_id)
-        if finish_code != "0":
-            raise TableauJobError(
-                "Patch job {} terminated with non-zero return code:{}".format(
-                    async_job_id, finish_code
-                )
+        lock = self._datasource_lock(tab_ds_name)
+        with lock:
+            async_job_id = REST.patch_datasource(
+                server=self.tableau_hostname,
+                auth_token=self.tableau_server.auth_token,
+                site_id=self.tableau_server.site_id,
+                datasource_id=ds_id,
+                file_upload_id=file_upload_id,
+                request_json=json_request,
             )
+            finish_code = self._wait_for_async_job(async_job_id)
+            if finish_code != "0":
+                raise TableauJobError(
+                    "Patch job {} terminated with non-zero return code:{}".format(
+                        async_job_id, finish_code
+                    )
+                )
 
     @abstractmethod
     def _hyper_sql_type(self, source_column):
@@ -541,9 +613,9 @@ class BaseExtractor(ABC):
         """
         Loads a sample of rows from source_table to Tableau Server
 
-        source_table (string): Source table identifier
+        source_table (string): Source table ref ("project ID.dataset ID.table ID")
         tab_ds_name (string): Target datasource name
-        publish_mode: One of TSC.Server.[Overwrite|Append|CreateNew] (default=CreateNew)
+        publish_mode: One of TSC.Server.[Overwrite|CreateNew] (default=CreateNew)
         sample_rows (int): How many rows to include in the sample (default=SAMPLE_ROWS)
         """
 
@@ -556,7 +628,7 @@ class BaseExtractor(ABC):
 
         source_table (string): Source table identifier
         tab_ds_name (string): Target datasource name
-        publish_mode: One of TSC.Server.[Overwrite|Append|CreateNew] (default=CreateNew)
+        publish_mode: One of TSC.Server.[Overwrite|CreateNew] (default=CreateNew)
         """
 
     @abstractmethod
@@ -565,7 +637,7 @@ class BaseExtractor(ABC):
         tab_ds_name,
         sql_query=None,
         source_table=None,
-        publish_mode=TSC.Server.PublishMode.Append,
+        changeset_table_name="new_rows",
     ):
         """
         Appends the result of sql_query to a datasource on Tableau Server
@@ -573,7 +645,8 @@ class BaseExtractor(ABC):
         tab_ds_name (string): Target datasource name
         sql_query (string): The query string that generates the changeset
         source_table (string): Identifier for source table containing the changeset
-        publish_mode: One of TSC.Server.[Overwrite|Append|CreateNew] (default=Append)
+        changeset_table_name (string): The name of the table in the hyper file that
+            contains the changeset (default="new_rows")
 
         NOTES:
         - Specify either sql_query OR source_table, error if both specified
@@ -596,8 +669,10 @@ class BaseExtractor(ABC):
         sql_query (string): The query string that generates the changeset
         source_table (string): Identifier for source table containing the changeset
         match_columns (array of tuples): Array of (source_col, target_col) pairs
-        match_conditions_json (string): Define conditions for matching rows in json format.  See Hyper API guide for details.
-        changeset_table_name (string): The name of the table in the hyper file that contains the changeset (default="updated_rows")
+        match_conditions_json (string): Define conditions for matching rows in json format.
+            See Hyper API guide for details.
+        changeset_table_name (string): The name of the table in the hyper file that contains
+            the changeset (default="updated_rows")
 
         NOTES:
         - Specify either match_columns OR match_conditions_json, error if both specified
@@ -639,8 +714,10 @@ class BaseExtractor(ABC):
         sql_query (string): The query string that generates the changeset
         source_table (string): Identifier for source table containing the changeset
         match_columns (array of tuples): Array of (source_col, target_col) pairs
-        match_conditions_json (string): Define conditions for matching rows in json format.  See Hyper API guide for details.
-        changeset_table_name (string): The name of the table in the hyper file that contains the changeset (default="deleted_rowids")
+        match_conditions_json (string): Define conditions for matching rows in json format.
+            See Hyper API guide for details.
+        changeset_table_name (string): The name of the table in the hyper file that contains
+            the changeset (default="deleted_rowids")
 
         NOTES:
         - match_columns overrides match_conditions_json if both are specified
