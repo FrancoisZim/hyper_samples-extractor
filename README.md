@@ -52,52 +52,6 @@ Utilities to build Hyper Extracts from Cloud Databases
 * update: Update an existing Tableau datasource with the changeset from a query
 * delete: Delete rows from a Tableau datasource that match key columns in a changeset from a query
 
->
->positional arguments:
-  {load_sample,export_load,append,update,delete}
-                        Select the utility function to call
->
->optional arguments:
-  -h, --help            show this help message and exit
-  --extractor {bigquery}
-                        Select the extractor implementation that matches your
-                        cloud database
-  --source_table_id SOURCE_TABLE_ID
-                        Source table ID
-  --tableau_project TABLEAU_PROJECT, -P TABLEAU_PROJECT
-                        Target project name (default=HyperAPITests)
-  --tableau_datasource TABLEAU_DATASOURCE
-                        Target datasource name
-  --tableau_hostname TABLEAU_HOSTNAME, -H TABLEAU_HOSTNAME
-                        Tableau connection string (default=http://localhost)
-  --tableau_site_id TABLEAU_SITE_ID, -S TABLEAU_SITE_ID
-                        Tableau site id (default=)
-  --bucket BUCKET       Bucket used for extract staging storage
-                        (default=emea_se)
-  --sample_rows SAMPLE_ROWS
-                        Defines the number of rows to use with LIMIT when
-                        command=load_sample (default=1000)
-  --sql SQL             The query string used to generate the changeset when
-                        command=[append|update|merge]
-  --sqlfile SQLFILE     File containing the query string used to generate the
-                        changeset when command=[append|update|delete]
-  --match_columns MATCH_COLUMNS MATCH_COLUMNS
-                        Define conditions for matching source and target key
-                        columns to use when command=[update|delete]. Specify
-                        one or more column pairs in the format:
-                        --match_columns [source_col] [target_col]
-  --match_conditions_json MATCH_CONDITIONS_JSON
-                        Define conditions for matching rows in json format
-                        when command=[update|delete].See Hyper API guide for
-                        details.
-  --tableau_username TABLEAU_USERNAME, -U TABLEAU_USERNAME
-                        Tableau user name
-  --tableau_token_name TABLEAU_TOKEN_NAME
-                        Personal access token name
-  --tableau_token_secretfile TABLEAU_TOKEN_SECRETFILE
-                        File containing personal access token secret
-
-
 ## Requirements: ##
 * [Hyper API for Python](https://help.tableau.com/current/api/hyper_api/en-us/docs/hyper_api_installing.html#install-the-hyper-api-for-python-36-and-37)
 * [Tableau Server Client Libraries](https://help.tableau.com/current/api/hyper_api/en-us/docs/hyper_api_installing.html#install-the-hyper-api-for-python-36-and-37)
