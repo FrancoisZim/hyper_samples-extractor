@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
-""" Base Hyper Extractor
-
+"""
 Tableau Community supported Hyper API sample
 
 This module provies an Abstract Base Class with some utility methods to extract
@@ -42,54 +41,70 @@ from tableauhyperapi import (
 logger = logging.getLogger("hyper_samples.extractor.base")
 
 TELEMETRY = Telemetry.SEND_USAGE_DATA_TO_TABLEAU
-"""TELEMETRY: Send usage data to Tableau
-    Set to Telemetry.DO_NOT_SEND_USAGE_DATA_TO_TABLEAU to disable
+"""
+    TELEMETRY: Send usage data to Tableau
+        Set to Telemetry.DO_NOT_SEND_USAGE_DATA_TO_TABLEAU to disable
 """
 
 TEMP_DIR = "/tmp"
-"""TEMP_DIR (string): Local staging directory for hyper files, database exports etc."""
+"""
+    TEMP_DIR (string): Local staging directory for hyper files, database exports etc.
+"""
 
 MAX_ROWS_PER_FILE = 100000
-"""MAX_ROWS_PER_FILE (int): Not yet implemented: Split output into smaller files for large query results"""
+"""
+    MAX_ROWS_PER_FILE (int): Not yet implemented: Split output into smaller files for large query results
+"""
 
 SAMPLE_ROWS = 1000
-"""SAMPLE_ROWS (int): Default number of rows for LIMIT when using load_sample"""
+"""
+    SAMPLE_ROWS (int): Default number of rows for LIMIT when using load_sample
+"""
 
 ASYNC_JOB_POLL_INTERVAL = 5
-"""ASYNC_JOB_POLL_INTERVAL (int): How many seconds to wait between polls for Asynchronous Job completion"""
+"""
+    ASYNC_JOB_POLL_INTERVAL (int): How many seconds to wait between polls for Asynchronous Job completion
+"""
 
 DATASOURCE_LOCK_TIMEOUT = 60
-"""DATASOURCE_LOCK_TIMEOUT (int): This  prevent multiple requests from being run against the
-  same Tableau datasource at the same time.  This only guards against symeltaneous jobs on the same
-  host so you will need to implement this check in your scheduler if running on multiple hosts"""
+"""
+    DATASOURCE_LOCK_TIMEOUT (int): This  prevent multiple requests from being run against the
+    same Tableau datasource at the same time.  This only guards against symeltaneous jobs on the
+    same host so you will need to implement this check in your scheduler if running accross
+    multiple hosts
+"""
 
 DATASOURCE_LOCKFILE_PREFIX = "/var/lock/tableau_extractor"
-"""DATASOURCE_LOCK_TIMEOUT (string): Defines the location of lockfiles"""
+"""
+    DATASOURCE_LOCK_TIMEOUT (string): Defines the location of lockfiles
+"""
 
 DEFAULT_SITE_ID = ""
-"""DEFAULT_SITE_ID (string): Default site ID"""
+"""
+    DEFAULT_SITE_ID (string): Default site ID
+"""
 
 HYPER_CONNECTION_PARAMETERS = {"lc_time": "en_GB", "date_style": "YMD"}
 """
-HYPER_CONNECTION_PARAMETERS (dict): Options are documented in the Tableau Hyper API
-documentation, chapter “Connection Settings
+    HYPER_CONNECTION_PARAMETERS (dict): Options are documented in the Tableau Hyper API
+    documentation, chapter “Connection Settings
 
-- lc_time - Controls the Locale setting that is used for dates. A Locale controls
-    which cultural preferences the application should apply. For example, the literal
-    Januar 1. 2002 can be converted to a date with the German locale de but not with the
-    English locale en_US.
+    - lc_time - Controls the Locale setting that is used for dates. A Locale controls
+        which cultural preferences the application should apply. For example, the literal
+        Januar 1. 2002 can be converted to a date with the German locale de but not with the
+        English locale en_US.
 
-    Default value: en_US
-    Allowed values start with a two-letter ISO-639 language code and an optional two-letter
-        ISO-3166 country code. If a country code is used, an underscore has to be used to
-        separate it from the language code. Some examples are: en_US (English: United States),
-        en_GB (English: Great Britain), de (German), de_AT (German: Austria).
+        Default value: en_US
+        Allowed values start with a two-letter ISO-639 language code and an optional two-letter
+            ISO-3166 country code. If a country code is used, an underscore has to be used to
+            separate it from the language code. Some examples are: en_US (English: United States),
+            en_GB (English: Great Britain), de (German), de_AT (German: Austria).
 
-- date_style - Controls how date strings are interpreted. Y, M and D stand for Year,
-    Month, and Day respectively.
+    - date_style - Controls how date strings are interpreted. Y, M and D stand for Year,
+        Month, and Day respectively.
 
-    Default value: MDY
-    Accepted values: MDY, DMY, YMD, YDM
+        Default value: MDY
+        Accepted values: MDY, DMY, YMD, YDM
 """
 
 
